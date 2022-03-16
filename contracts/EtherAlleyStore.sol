@@ -32,19 +32,26 @@ interface IEtherAlleyStore is IERC1155 {
     function setListing(
         uint256 id,
         uint256 price,
-        uint256 stock
+        uint256 supplyLimit,
+        uint256 addressLimit
     ) external;
 
-    function getListing(uint256 id) external view returns (uint256[3] memory);
+    function getListing(uint256 id) external view returns (uint256[4] memory);
 
     function getListingBatch(uint256[] memory ids)
         external
         view
-        returns (uint256[3][] memory);
+        returns (uint256[4][] memory);
 
     function transferBalance(uint256 amount) external;
 
-    event ListingChange(uint256 id, uint256 price, uint256 stock);
+    event ListingChange(
+        uint256 id,
+        uint256 price,
+        uint256 supplyLimit,
+        uint256 addressLimit,
+        uint256 supply
+    );
 }
 
 // TODO:
@@ -52,7 +59,8 @@ interface IEtherAlleyStore is IERC1155 {
 contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
     struct TokenListing {
         uint256 price;
-        uint256 stock;
+        uint256 supplyLimit;
+        uint256 addressLimit;
         uint256 supply;
     }
 
@@ -101,13 +109,21 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
     function setListing(
         uint256 id,
         uint256 price,
-        uint256 stock
+        uint256 supplyLimit,
+        uint256 addressLimit
     ) public override onlyOwner {
         TokenListing storage listing = _tokenListings[id];
-        require(stock >= listing.supply, "Listing: invalid stock change");
+        require(supplyLimit >= listing.supply, "Listing: invalid supplyLimit");
         listing.price = price;
-        listing.stock = stock;
-        emit ListingChange(id, price, stock);
+        listing.supplyLimit = supplyLimit;
+        listing.addressLimit = addressLimit;
+        emit ListingChange(
+            id,
+            price,
+            supplyLimit,
+            addressLimit,
+            listing.supply
+        );
     }
 
     // TODO:
@@ -115,10 +131,15 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
         public
         view
         override
-        returns (uint256[3] memory)
+        returns (uint256[4] memory)
     {
         TokenListing memory listing = _tokenListings[id];
-        return [listing.price, listing.stock, listing.supply];
+        return [
+            listing.price,
+            listing.supplyLimit,
+            listing.addressLimit,
+            listing.supply
+        ];
     }
 
     // TODO:
@@ -126,9 +147,9 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
         public
         view
         override
-        returns (uint256[3][] memory)
+        returns (uint256[4][] memory)
     {
-        uint256[3][] memory listings = new uint256[3][](ids.length);
+        uint256[4][] memory listings = new uint256[4][](ids.length);
         for (uint256 i = 0; i < ids.length; ++i) {
             listings[i] = getListing(ids[i]);
         }
@@ -150,13 +171,17 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
             "Purchase: not enough value sent"
         );
         require(
-            listing.supply + amount <= listing.stock,
+            listing.supply + amount <= listing.supplyLimit,
             "Purchase: not enough stock"
         );
-        _mint(msg.sender, id, amount, "");
+        _mint(_msgSender(), id, amount, "");
     }
 
     // TODO:
+    // You can avoid the address limit guard technically by passing multiples
+    // of the same id with small amounts that in sum exceed the limit.
+    // Although this is not technically possible for any user facing external functions,
+    // as there is no batch purchase that accepts multiple ids
     function _beforeTokenTransfer(
         address operator,
         address from,
@@ -165,6 +190,16 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
         uint256[] memory amounts,
         bytes memory data
     ) internal override(ERC1155) whenNotPaused {
+        if (to != address(0)) {
+            for (uint256 i = 0; i < ids.length; ++i) {
+                require(
+                    balanceOf(to, ids[i]) + amounts[i] <=
+                        _tokenListings[ids[i]].addressLimit,
+                    "Transfer: invalid new balance"
+                );
+            }
+        }
+
         super._beforeTokenTransfer(operator, from, to, ids, amounts, data);
 
         if (from == address(0)) {

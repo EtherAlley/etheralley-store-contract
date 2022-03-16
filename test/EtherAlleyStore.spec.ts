@@ -56,25 +56,29 @@ describe("EtherAlleyStore", () => {
   describe("Listing Functionality", () => {
     it("Cannot list an item as non-owner", async () => {
       await expect(
-        store.connect(user1).setListing(123, 1, 1)
+        store.connect(user1).setListing(123, 1, 1, 1)
       ).to.be.revertedWith("Ownable: caller is not the owner");
 
-      const [price, stock, supply] = await store
+      const [price, supplyLimit, addressLimit, supply] = await store
         .connect(user1)
         .getListing(tokenId1);
 
       expect(price).to.equal(0);
-      expect(stock).to.equal(0);
+      expect(supplyLimit).to.equal(0);
+      expect(addressLimit).to.equal(0);
       expect(supply).to.equal(0);
     });
 
     it("Supply/balance is not affected when listing is modified", async () => {
       const price = 5;
       const amount = 2;
-      const stock = 3;
+      const supplyLimit = 3;
+      const addressLimit = 2;
       const increase = 1;
 
-      await store.connect(owner).setListing(tokenId1, price, stock);
+      await store
+        .connect(owner)
+        .setListing(tokenId1, price, supplyLimit, addressLimit);
 
       const tx = await store
         .connect(user1)
@@ -85,31 +89,43 @@ describe("EtherAlleyStore", () => {
         await store.balanceOf(await user1.getAddress(), tokenId1)
       ).to.equal(amount);
 
-      let [resultPrice, resultStock, resultSupply] = await store.getListing(
-        tokenId1
-      );
+      let [resultPrice, resultSupplyLimit, resultAddressLimit, resultSupply] =
+        await store.getListing(tokenId1);
 
       expect([
         resultPrice.toNumber(),
-        resultStock.toNumber(),
+        resultSupplyLimit.toNumber(),
+        resultAddressLimit.toNumber(),
         resultSupply.toNumber(),
-      ]).to.deep.equal([price, stock, amount]);
+      ]).to.deep.equal([price, supplyLimit, addressLimit, amount]);
 
-      await store.connect(owner).setListing(tokenId1, price, stock + increase);
+      await store
+        .connect(owner)
+        .setListing(
+          tokenId1,
+          price + increase,
+          supplyLimit + increase,
+          addressLimit + increase
+        );
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
       ).to.equal(amount);
 
-      [resultPrice, resultStock, resultSupply] = await store.getListing(
-        tokenId1
-      );
+      [resultPrice, resultSupplyLimit, resultAddressLimit, resultSupply] =
+        await store.getListing(tokenId1);
 
       expect([
         resultPrice.toNumber(),
-        resultStock.toNumber(),
+        resultSupplyLimit.toNumber(),
+        resultAddressLimit.toNumber(),
         resultSupply.toNumber(),
-      ]).to.deep.equal([price, stock + increase, amount]);
+      ]).to.deep.equal([
+        price + increase,
+        supplyLimit + increase,
+        addressLimit + increase,
+        amount,
+      ]);
     });
   });
 
@@ -123,7 +139,7 @@ describe("EtherAlleyStore", () => {
     });
 
     it("Purchase amount must be greater than zero", async () => {
-      await store.connect(owner).setListing(tokenId1, 1, 1);
+      await store.connect(owner).setListing(tokenId1, 1, 1, 1);
 
       await expect(
         store.connect(user1).purchase(tokenId1, 0)
@@ -136,7 +152,7 @@ describe("EtherAlleyStore", () => {
 
     [0, 9, 11].forEach((value) => {
       it(`Value must be equal to item price times amount: ${value}`, async () => {
-        await store.connect(owner).setListing(tokenId1, 5, 2);
+        await store.connect(owner).setListing(tokenId1, 5, 2, 1);
 
         await expect(
           store.connect(user1).purchase(tokenId1, 2, { value })
@@ -149,11 +165,13 @@ describe("EtherAlleyStore", () => {
     });
 
     [
-      [5, 2, 3, 15],
-      [5, 0, 1, 5],
-    ].forEach(([price, stock, amount, value]) => {
-      it(`Purchase must have enough stock. price: ${price}: stock: ${stock} amount: ${amount} value: ${value}`, async () => {
-        await store.connect(owner).setListing(tokenId1, price, stock);
+      [5, 2, 3, 3, 15],
+      [5, 0, 1, 1, 5],
+    ].forEach(([price, supplyLimit, addressLimit, amount, value]) => {
+      it(`Purchase must have enough stock. price: ${price}: supplyLimit: ${supplyLimit} addressLimit: ${addressLimit} amount: ${amount} value: ${value}`, async () => {
+        await store
+          .connect(owner)
+          .setListing(tokenId1, price, supplyLimit, addressLimit);
 
         await expect(
           store.connect(user1).purchase(tokenId1, amount, { value })
@@ -166,12 +184,14 @@ describe("EtherAlleyStore", () => {
     });
 
     [
-      [5, 2, 2, 10],
-      [5, 2, 1, 5],
-      [5, 3, 2, 10],
-    ].forEach(([price, stock, amount, value]) => {
-      it(`Purchase mints token to requester when valid amount/value sent for requesting id price: ${price}: stock: ${stock} requestedStock: ${amount} value: ${value}`, async () => {
-        await store.connect(owner).setListing(tokenId1, price, stock);
+      [5, 2, 2, 2, 10],
+      [5, 2, 2, 1, 5],
+      [5, 3, 3, 2, 10],
+    ].forEach(([price, supplyLimit, addressLimit, amount, value]) => {
+      it(`Purchase mints token to requester when valid amount/value sent for requesting id price: ${price}: supplyLimit: ${supplyLimit} addressLimit: ${addressLimit} requestedStock: ${amount} value: ${value}`, async () => {
+        await store
+          .connect(owner)
+          .setListing(tokenId1, price, supplyLimit, addressLimit);
 
         const tx = await store
           .connect(user1)
@@ -181,14 +201,20 @@ describe("EtherAlleyStore", () => {
         expect(
           await store.balanceOf(await user1.getAddress(), tokenId1)
         ).to.equal(amount);
-        const [resultPrice, resultStock, resultSupply] = await store.getListing(
-          tokenId1
-        );
+
+        const [
+          resultPrice,
+          resultSupplyLimit,
+          resultAddressLimit,
+          resultSupply,
+        ] = await store.getListing(tokenId1);
+
         expect([
           resultPrice.toNumber(),
-          resultStock.toNumber(),
+          resultSupplyLimit.toNumber(),
+          resultAddressLimit.toNumber(),
           resultSupply.toNumber(),
-        ]).to.deep.equal([price, stock, amount]);
+        ]).to.deep.equal([price, supplyLimit, addressLimit, amount]);
       });
     });
   });
@@ -196,10 +222,13 @@ describe("EtherAlleyStore", () => {
   it("Purchases can continue to be made when stock increases", async () => {
     const price = 5;
     const amount = 2;
-    const stock = 2;
+    const supplyLimit = 2;
+    const addressLimit = 4;
     const increase = 2;
 
-    await store.connect(owner).setListing(tokenId1, price, stock);
+    await store
+      .connect(owner)
+      .setListing(tokenId1, price, supplyLimit, addressLimit);
 
     // purchase all available stock
     let tx = await store
@@ -211,14 +240,14 @@ describe("EtherAlleyStore", () => {
     expect(await store.balanceOf(await user1.getAddress(), tokenId1)).to.equal(
       amount
     );
-    let [resultPrice, resultStock, resultSupply] = await store.getListing(
-      tokenId1
-    );
+    let [resultPrice, resultSupplyLimit, resultAddressLimit, resultSupply] =
+      await store.getListing(tokenId1);
     expect([
       resultPrice.toNumber(),
-      resultStock.toNumber(),
+      resultSupplyLimit.toNumber(),
+      resultAddressLimit.toNumber(),
       resultSupply.toNumber(),
-    ]).to.deep.equal([price, stock, amount]);
+    ]).to.deep.equal([price, supplyLimit, addressLimit, amount]);
 
     // try to purchase more.
     await expect(
@@ -226,7 +255,9 @@ describe("EtherAlleyStore", () => {
     ).to.be.revertedWith("Purchase: not enough stock");
 
     // increase stock
-    await store.connect(owner).setListing(tokenId1, price, stock + increase);
+    await store
+      .connect(owner)
+      .setListing(tokenId1, price, supplyLimit + increase, addressLimit);
 
     // purchase all new stock
     tx = await store
@@ -238,12 +269,46 @@ describe("EtherAlleyStore", () => {
     expect(await store.balanceOf(await user1.getAddress(), tokenId1)).to.equal(
       amount + increase
     );
-    [resultPrice, resultStock, resultSupply] = await store.getListing(tokenId1);
+    [resultPrice, resultSupplyLimit, resultAddressLimit, resultSupply] =
+      await store.getListing(tokenId1);
     expect([
       resultPrice.toNumber(),
-      resultStock.toNumber(),
+      resultSupplyLimit.toNumber(),
+      resultAddressLimit.toNumber(),
       resultSupply.toNumber(),
-    ]).to.deep.equal([price, stock + increase, amount + increase]);
+    ]).to.deep.equal([
+      price,
+      supplyLimit + increase,
+      addressLimit,
+      amount + increase,
+    ]);
+  });
+
+  describe("Transfer Functionality", () => {
+    [
+      [5, 4, 3, 4, 20],
+      [5, 2, 0, 1, 5],
+    ].forEach(([price, supplyLimit, addressLimit, amount, value]) => {
+      it(`Address balance must not exceed limit when purchasing. price: ${price}: supplyLimit: ${supplyLimit} addressLimit: ${addressLimit} amount: ${amount} value: ${value}`, async () => {
+        await store
+          .connect(owner)
+          .setListing(tokenId1, price, supplyLimit, addressLimit);
+
+        await expect(
+          store.connect(user1).purchase(tokenId1, amount, { value })
+        ).to.be.revertedWith("Transfer: invalid new balance");
+
+        expect(
+          await store.balanceOf(await user1.getAddress(), tokenId1)
+        ).to.equal(0);
+      });
+    });
+
+    it("Address balance must not exceed limit when transfering", () => {});
+
+    it("Purchases can continue when address limit increases", () => {});
+
+    it("Transfers can continue when address limit increases", () => {});
   });
 });
 
