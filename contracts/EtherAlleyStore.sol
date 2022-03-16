@@ -156,6 +156,7 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
         _mint(msg.sender, id, amount, "");
     }
 
+    // TODO:
     function _beforeTokenTransfer(
         address operator,
         address from,
