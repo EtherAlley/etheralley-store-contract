@@ -102,8 +102,6 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
     ) public override onlyOwner {
         TokenListing storage listing = _tokenListings[id];
 
-        require(supplyLimit >= listing.supply, "Invalid supplyLimit");
-
         listing.enabled = enabled;
         listing.price = price;
         listing.supplyLimit = supplyLimit;
@@ -166,32 +164,33 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
     }
 
     // TODO:
-    // You can avoid the address limit guard by passing multiples
-    // of the same id with small amounts that in sum exceed the limit.
-    // This edge case is caught in the supply limit because we increment it as we check.
-    //
-    // Need owner ownly mint privilage that doesnt break supply and other metrics
-    //
-    // Checks already done:
-    // - ids len = amounts len
-    // - to address is not zero
+    // Checks already done in the prior call stack:
+    // - ids length equals amounts length
+    // - to address is not zero address (burns not supported)
     function _beforeTokenTransfer(
-        address,
+        address operator,
         address from,
         address to,
         uint256[] memory ids,
         uint256[] memory amounts,
         bytes memory
     ) internal override(ERC1155) whenNotPaused {
-        uint256 totalPrice = 0;
+        // Without this check you can avoid the balance limit by passing multiples
+        // of the same id with small amounts that in sum exceed the limit.
+        for (uint256 i = 0; i < ids.length; i++) {
+            for (uint256 j = 0; j < ids.length; j++) {
+                require(i == j || ids[i] != ids[j], "Duplicate id detected");
+            }
+        }
 
+        uint256 totalPrice = 0;
         for (uint256 i = 0; i < ids.length; i++) {
             uint256 id = ids[i];
             uint256 amount = amounts[i];
 
             TokenListing storage listing = _tokenListings[id];
 
-            // purchase specific validation
+            // Purchase specific validation
             if (from == address(0)) {
                 require(listing.enabled, "Listing not enabled");
 
@@ -199,8 +198,11 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
                     listing.supply + amount <= listing.supplyLimit,
                     "Exceeds supply limit"
                 );
+
+                // Update listing supply tracker
                 listing.supply += amount;
 
+                // Accumulate total price
                 totalPrice += amount * listing.price;
             }
 
@@ -210,9 +212,11 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
             );
         }
 
-        // skip payment check for owner address
-        if (_msgSender() != owner()) {
-            require(msg.value == totalPrice, "Invalid value sent");
+        // Skip payment check for owner address
+        if (operator == owner()) {
+            return;
         }
+
+        require(msg.value == totalPrice, "Invalid value sent");
     }
 }

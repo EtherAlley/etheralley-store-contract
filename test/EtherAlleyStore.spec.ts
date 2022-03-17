@@ -6,11 +6,15 @@ import { EtherAlleyStore } from "../typechain";
 describe("EtherAlleyStore", () => {
   const uri: string = "https://api.etheralley.io/store/{id}";
   const tokenId1 = 123;
+  const tokenId2 = 456;
   let store: EtherAlleyStore;
-  let owner: SignerWithAddress, user1: SignerWithAddress;
+  let owner: SignerWithAddress,
+    user1: SignerWithAddress,
+    user2: SignerWithAddress,
+    user3: SignerWithAddress;
 
   beforeEach(async () => {
-    [owner, user1] = await ethers.getSigners();
+    [owner, user1, user2, user3] = await ethers.getSigners();
 
     const Store = await ethers.getContractFactory("EtherAlleyStore");
     store = await Store.connect(owner).deploy(uri);
@@ -21,20 +25,48 @@ describe("EtherAlleyStore", () => {
     it("Should set the right owner", async function () {
       expect(await store.owner()).to.equal(owner.address);
     });
+
+    it("Owner can transfer ownership", async () => {});
+
+    it("Owner can revoke ownership", async () => {});
+
+    it("Owner skips price check", async () => {});
+
+    it("Owner can set listings", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
   });
 
   describe("Pause Functionality", () => {
-    it("Purchase is blocked when paused and can proceed when unpaused", () => {});
+    it("Cannot pause as non owner", async () => {});
 
-    it("Purchase Batch is blocked when paused and can proceed when unpaused", () => {});
+    it("Cannot unpause as non owner", async () => {});
 
-    it("Transfer is blocked when paused and can proceed when unpaused", () => {});
+    it("Purchase is blocked when paused and can proceed when unpaused", async () => {});
 
-    it("Transfer Batch is blocked when paused and can proceed when unpaused", () => {});
+    it("Purchase Batch is blocked when paused and can proceed when unpaused", async () => {});
+
+    it("Transfer is blocked when paused and can proceed when unpaused", async () => {});
+
+    it("Transfer Batch is blocked when paused and can proceed when unpaused", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
   });
 
   describe("URI Functionality", () => {
-    it("should return uri after deployment", async () => {
+    it("should set uri during deployment", async () => {
       expect(await store.uri(0)).to.equal(uri);
     });
 
@@ -59,6 +91,14 @@ describe("EtherAlleyStore", () => {
 
       expect(await store.uri(0)).to.equal(uri);
     });
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
   });
 
   describe("Listing Functionality", () => {
@@ -152,6 +192,16 @@ describe("EtherAlleyStore", () => {
         amount,
       ]);
     });
+
+    it("Can get multiple listings in batch", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
   });
 
   describe("Purchase Functionality", () => {
@@ -178,7 +228,7 @@ describe("EtherAlleyStore", () => {
     });
 
     [0, 9, 11].forEach((value) => {
-      it(`Value must be equal to item price times amount: ${value}`, async () => {
+      it(`Value must be equal to listing price times amount: ${value}`, async () => {
         await store.connect(owner).setListing(tokenId1, true, 5, 2, 2);
 
         await expect(
@@ -363,62 +413,577 @@ describe("EtherAlleyStore", () => {
       ]);
     });
 
-    it("Purchases can continue when address limit increases", () => {});
+    it("Purchases can continue when balance limit increases", async () => {});
 
-    it("Purchases can continue when item is re-enabled", () => {});
+    it("Purchases can continue when item is re-enabled", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
   });
 
   describe("Purchase Batch Functionality", () => {
-    it("Value sent can not exceed total price when requesting multiple ids with multiple amounts", () => {});
+    it("Can not avoid balance limit check by batch purchasing smaller amounts of the same id", async () => {
+      const price = 12;
+      const supplyLimit = 10;
+      const balanceLimit = 3;
+      await store
+        .connect(owner)
+        .setListing(tokenId1, true, price, supplyLimit, balanceLimit);
 
-    it("Fails when one item is over supply limit", () => {});
+      await expect(
+        store
+          .connect(user1)
+          .purchaseBatch(
+            user1.address,
+            [tokenId1, tokenId1],
+            [balanceLimit - 1, balanceLimit - 1],
+            [],
+            {
+              value: price * (balanceLimit - 1) * 2,
+            }
+          )
+      ).to.be.revertedWith("Duplicate id detected");
 
-    it("Fails when one item is over address limit", () => {});
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      const [, , , , token1Supply] = await store.getListing(tokenId1);
+      expect(token1Supply).to.equal(0);
+    });
 
-    it("Fails when one item is not enabled", () => {});
+    it("Value sent can not differ from total price when requesting multiple ids with multiple amounts", async () => {
+      const tokenId1Price = 10;
+      const tokenId2Price = 43;
+      const tokenId1Amount = 14;
+      const tokenId2Amount = 673;
 
-    it("Works when all contraints are met", () => {});
+      await store
+        .connect(owner)
+        .setListing(tokenId1, true, tokenId1Price, 999, 999);
 
-    it("", () => {});
+      await store
+        .connect(owner)
+        .setListing(tokenId2, true, tokenId2Price, 999, 999);
 
-    it("", () => {});
+      await expect(
+        store
+          .connect(user1)
+          .purchaseBatch(
+            user1.address,
+            [tokenId1, tokenId2],
+            [tokenId1Amount, tokenId2Amount],
+            [],
+            {
+              value:
+                tokenId1Price * tokenId1Amount +
+                (tokenId2Price * tokenId2Amount - 1),
+            }
+          )
+      ).to.be.revertedWith("Invalid value sent");
 
-    it("", () => {});
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(0);
+      const [, , , , token1Supply] = await store.getListing(tokenId1);
+      expect(token1Supply).to.equal(0);
+      const [, , , , token2Supply] = await store.getListing(tokenId2);
+      expect(token2Supply).to.equal(0);
+    });
+
+    it("No item can be over supply limit", async () => {
+      await store.connect(owner).setListing(tokenId1, true, 1, 999, 999);
+
+      await store.connect(owner).setListing(tokenId2, true, 1, 999, 999);
+
+      await expect(
+        store
+          .connect(user1)
+          .purchaseBatch(user1.address, [tokenId1, tokenId2], [999, 1000], [], {
+            value: 1999,
+          })
+      ).to.be.revertedWith("Exceeds supply limit");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(0);
+      const [, , , , token1Supply] = await store.getListing(tokenId1);
+      expect(token1Supply).to.equal(0);
+      const [, , , , token2Supply] = await store.getListing(tokenId2);
+      expect(token2Supply).to.equal(0);
+    });
+
+    it("No item can be over balance limit", async () => {
+      await store.connect(owner).setListing(tokenId1, true, 1, 9999, 999);
+
+      await store.connect(owner).setListing(tokenId2, true, 1, 9999, 999);
+
+      await expect(
+        store
+          .connect(user1)
+          .purchaseBatch(user1.address, [tokenId1, tokenId2], [999, 1000], [], {
+            value: 1999,
+          })
+      ).to.be.revertedWith("Exceeds balance limit");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(0);
+      const [, , , , token1Supply] = await store.getListing(tokenId1);
+      expect(token1Supply).to.equal(0);
+      const [, , , , token2Supply] = await store.getListing(tokenId2);
+      expect(token2Supply).to.equal(0);
+    });
+
+    it("No item can not be enabled", async () => {
+      await store.connect(owner).setListing(tokenId1, true, 1, 1, 1);
+
+      await store.connect(owner).setListing(tokenId2, false, 1, 1, 1);
+
+      await expect(
+        store
+          .connect(user1)
+          .purchaseBatch(user1.address, [tokenId1, tokenId2], [1, 1], [], {
+            value: 2,
+          })
+      ).to.be.revertedWith("Listing not enabled");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(0);
+      const [, , , , token1Supply] = await store.getListing(tokenId1);
+      expect(token1Supply).to.equal(0);
+      const [, , , , token2Supply] = await store.getListing(tokenId2);
+      expect(token2Supply).to.equal(0);
+    });
+
+    it("Balance and supply are updated when all constraints are met and called multiple times", async () => {
+      const token1Price = 12;
+      const token2Price = 53;
+      const token1Amount = 72;
+      const token2Amount = 34;
+      await store
+        .connect(owner)
+        .setListing(tokenId1, true, token1Price, 9999, 9999);
+
+      await store
+        .connect(owner)
+        .setListing(tokenId2, true, token2Price, 9999, 9999);
+
+      let tx = await store
+        .connect(user1)
+        .purchaseBatch(
+          user1.address,
+          [tokenId1, tokenId2],
+          [token1Amount, token2Amount],
+          [],
+          {
+            value: token1Price * token1Amount + token2Price * token2Amount,
+          }
+        );
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(token1Amount);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(token2Amount);
+      let [, , , , token1Supply] = await store.getListing(tokenId1);
+      expect(token1Supply).to.equal(token1Amount);
+      let [, , , , token2Supply] = await store.getListing(tokenId2);
+      expect(token2Supply).to.equal(token2Amount);
+
+      tx = await store
+        .connect(user1)
+        .purchaseBatch(
+          user1.address,
+          [tokenId1, tokenId2],
+          [token1Amount, token2Amount],
+          [],
+          {
+            value: token1Price * token1Amount + token2Price * token2Amount,
+          }
+        );
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(token1Amount * 2);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(token2Amount * 2);
+      [, , , , token1Supply] = await store.getListing(tokenId1);
+      expect(token1Supply).to.equal(token1Amount * 2);
+      [, , , , token2Supply] = await store.getListing(tokenId2);
+      expect(token2Supply).to.equal(token2Amount * 2);
+    });
+
+    it("Purchasing on behalf of someone does not avoid the balance check", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
   });
 
   describe("Transfer Functionality", () => {
-    it("Address balance must not exceed limit when transfering", () => {});
+    it("Address balance must not exceed limit when transfering", async () => {
+      const price = 10;
+      const amount = 9;
+      const balanceLimit = 10;
+      await store
+        .connect(owner)
+        .setListing(tokenId1, true, price, 999, balanceLimit);
 
-    it("Transfers can continue when address limit increases", () => {});
+      let tx = await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, amount, [], {
+          value: amount * price,
+        });
+      await tx.wait();
 
-    it("Can not transfer more balance than owned", () => {});
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(amount);
 
-    it("Can not avoid address limit check by batch transfering small amounts of the same id", () => {});
+      tx = await store
+        .connect(user1)
+        .purchase(user2.address, tokenId1, amount, [], {
+          value: amount * price,
+        });
+      await tx.wait();
 
-    it("Works when all contraints are met", () => {});
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(amount);
 
-    it("", () => {});
+      tx = await store
+        .connect(user1)
+        .safeTransferFrom(
+          user1.address,
+          user3.address,
+          tokenId1,
+          amount,
+          [],
+          {}
+        );
+      await tx.wait();
 
-    it("", () => {});
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(9);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(9);
 
-    it("", () => {});
+      await expect(
+        store
+          .connect(user2)
+          .safeTransferFrom(
+            user2.address,
+            user3.address,
+            tokenId1,
+            amount,
+            [],
+            {}
+          )
+      ).to.be.revertedWith("Exceeds balance limit");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(9);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(9);
+    });
+
+    it("Transfers can continue when address limit increases", async () => {
+      const price = 10;
+      const amount = 9;
+      const balanceLimit = 10;
+      await store
+        .connect(owner)
+        .setListing(tokenId1, true, price, 999, balanceLimit);
+
+      let tx = await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, amount, [], {
+          value: amount * price,
+        });
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(amount);
+
+      tx = await store
+        .connect(user1)
+        .purchase(user2.address, tokenId1, amount, [], {
+          value: amount * price,
+        });
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(amount);
+
+      tx = await store
+        .connect(user1)
+        .safeTransferFrom(
+          user1.address,
+          user3.address,
+          tokenId1,
+          amount,
+          [],
+          {}
+        );
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(9);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(9);
+
+      await expect(
+        store
+          .connect(user2)
+          .safeTransferFrom(
+            user2.address,
+            user3.address,
+            tokenId1,
+            amount,
+            [],
+            {}
+          )
+      ).to.be.revertedWith("Exceeds balance limit");
+
+      await store
+        .connect(owner)
+        .setListing(tokenId1, true, price, 999, balanceLimit * 2);
+
+      tx = await store
+        .connect(user2)
+        .safeTransferFrom(
+          user2.address,
+          user3.address,
+          tokenId1,
+          amount,
+          [],
+          {}
+        );
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(18);
+    });
+
+    it("Can not transfer more balance than owned", async () => {
+      await store.connect(owner).setListing(tokenId1, true, 10, 999, 999);
+
+      const tx = await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 5, [], {
+          value: 50,
+        });
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+
+      await expect(
+        store
+          .connect(user1)
+          .safeTransferFrom(user1.address, user3.address, tokenId1, 6, [], {})
+      ).to.be.revertedWith("ERC1155: insufficient balance for transfer");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(0);
+    });
+
+    it("Can transfer a non enabled item", async () => {
+      await store.connect(owner).setListing(tokenId1, true, 10, 999, 999);
+
+      let tx = await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 1, [], {
+          value: 10,
+        });
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(1);
+
+      await store.connect(owner).setListing(tokenId1, false, 10, 999, 999);
+
+      tx = await store
+        .connect(user1)
+        .safeTransferFrom(user1.address, user3.address, tokenId1, 1, [], {});
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(1);
+    });
+
+    it("Can transfer an item at max supply", async () => {
+      await store.connect(owner).setListing(tokenId1, true, 10, 10, 999);
+
+      let tx = await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 10, [], {
+          value: 100,
+        });
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(10);
+
+      tx = await store
+        .connect(user1)
+        .safeTransferFrom(user1.address, user3.address, tokenId1, 10, [], {});
+      await tx.wait();
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(10);
+      const [, , , , token1Supply] = await store.getListing(tokenId1);
+      expect(token1Supply).to.equal(10);
+    });
+
+    it("Can continue with transfers when balance limit increases", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
   });
 
   describe("Transfer Batch Functionality", () => {
-    it("Can not avoid address limit check by batch transfering small amounts of the same id", () => {});
+    it("Can not avoid balance limit check by batch transfering small amounts of the same id", async () => {
+      await store.connect(owner).setListing(tokenId1, true, 10, 999, 15);
 
-    it("Fails when one item is over supply limit", () => {});
+      let tx = await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 10, [], {
+          value: 100,
+        });
+      await tx.wait();
 
-    it("Fails when one item is over address limit", () => {});
+      tx = await store
+        .connect(user1)
+        .purchase(user2.address, tokenId1, 10, [], {
+          value: 100,
+        });
+      await tx.wait();
 
-    it("Fails when one item is not enabled", () => {});
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(10);
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(10);
 
-    it("Works when all contraints are met", () => {});
+      tx = await store
+        .connect(user1)
+        .safeBatchTransferFrom(
+          user1.address,
+          user3.address,
+          [tokenId1],
+          [10],
+          [],
+          {}
+        );
+      await tx.wait();
+      await expect(
+        store
+          .connect(user2)
+          .safeBatchTransferFrom(
+            user2.address,
+            user3.address,
+            [tokenId1, tokenId1],
+            [5, 5],
+            [],
+            {}
+          )
+      ).to.be.revertedWith("Duplicate id detected");
 
-    it("", () => {});
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(10);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(10);
+    });
 
-    it("", () => {});
+    it("Fails when one item is over balance limit", async () => {});
 
-    it("", () => {});
+    it("Works when all constraints are met", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
+
+    it("", async () => {});
   });
+
+  describe("End to end tests", () => {});
 });
