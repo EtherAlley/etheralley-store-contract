@@ -7,49 +7,57 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 
 interface IEtherAlleyStore is IERC1155 {
+    struct TokenListing {
+        bool enabled;
+        uint256 price;
+        uint256 supplyLimit;
+        uint256 balanceLimit;
+        uint256 supply;
+    }
+
     function setURI(string memory newuri) external;
 
     function pause() external;
 
     function unpause() external;
 
-    function mint(
-        address account,
-        uint256 id,
-        uint256 amount,
-        bytes memory data
-    ) external;
-
-    function mintBatch(
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory data
-    ) external;
-
-    function purchase(uint256 id, uint256 amount) external payable;
+    function transferBalance(address to, uint256 amount) external;
 
     function setListing(
         uint256 id,
+        bool enabled,
         uint256 price,
         uint256 supplyLimit,
-        uint256 addressLimit
+        uint256 balanceLimit
     ) external;
 
-    function getListing(uint256 id) external view returns (uint256[4] memory);
+    function getListing(uint256 id) external view returns (TokenListing memory);
 
     function getListingBatch(uint256[] memory ids)
         external
         view
-        returns (uint256[4][] memory);
+        returns (TokenListing[] memory);
 
-    function transferBalance(uint256 amount) external;
+    function purchase(
+        address account,
+        uint256 id,
+        uint256 amount,
+        bytes memory data
+    ) external payable;
+
+    function purchaseBatch(
+        address to,
+        uint256[] memory ids,
+        uint256[] memory amounts,
+        bytes memory data
+    ) external payable;
 
     event ListingChange(
         uint256 id,
+        bool enabled,
         uint256 price,
         uint256 supplyLimit,
-        uint256 addressLimit,
+        uint256 balanceLimit,
         uint256 supply
     );
 }
@@ -57,13 +65,6 @@ interface IEtherAlleyStore is IERC1155 {
 // TODO:
 // - support erc20 transfer?
 contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
-    struct TokenListing {
-        uint256 price;
-        uint256 supplyLimit;
-        uint256 addressLimit;
-        uint256 supply;
-    }
-
     mapping(uint256 => TokenListing) private _tokenListings;
 
     constructor(string memory uri)
@@ -82,46 +83,38 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
         _unpause();
     }
 
-    function mint(
-        address account,
-        uint256 id,
-        uint256 amount,
-        bytes memory data
-    ) public override onlyOwner {
-        _mint(account, id, amount, data);
-    }
-
-    function mintBatch(
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory data
-    ) public override onlyOwner {
-        _mintBatch(to, ids, amounts, data);
-    }
-
     // TODO:
-    function transferBalance(uint256 amount) public override onlyOwner {
-        payable(owner()).transfer(amount);
+    function transferBalance(address to, uint256 amount)
+        public
+        override
+        onlyOwner
+    {
+        payable(to).transfer(amount);
     }
 
     // TODO:
     function setListing(
         uint256 id,
+        bool enabled,
         uint256 price,
         uint256 supplyLimit,
-        uint256 addressLimit
+        uint256 balanceLimit
     ) public override onlyOwner {
         TokenListing storage listing = _tokenListings[id];
-        require(supplyLimit >= listing.supply, "Listing: invalid supplyLimit");
+
+        require(supplyLimit >= listing.supply, "Invalid supplyLimit");
+
+        listing.enabled = enabled;
         listing.price = price;
         listing.supplyLimit = supplyLimit;
-        listing.addressLimit = addressLimit;
+        listing.balanceLimit = balanceLimit;
+
         emit ListingChange(
             id,
+            enabled,
             price,
             supplyLimit,
-            addressLimit,
+            balanceLimit,
             listing.supply
         );
     }
@@ -131,15 +124,9 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
         public
         view
         override
-        returns (uint256[4] memory)
+        returns (TokenListing memory)
     {
-        TokenListing memory listing = _tokenListings[id];
-        return [
-            listing.price,
-            listing.supplyLimit,
-            listing.addressLimit,
-            listing.supply
-        ];
+        return _tokenListings[id];
     }
 
     // TODO:
@@ -147,71 +134,85 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
         public
         view
         override
-        returns (uint256[4][] memory)
+        returns (TokenListing[] memory)
     {
-        uint256[4][] memory listings = new uint256[4][](ids.length);
-        for (uint256 i = 0; i < ids.length; ++i) {
+        TokenListing[] memory listings = new TokenListing[](ids.length);
+
+        for (uint256 i = 0; i < ids.length; i++) {
             listings[i] = getListing(ids[i]);
         }
-        return listings;
+
+        return (listings);
     }
 
     // TODO:
-    function purchase(uint256 id, uint256 amount)
-        public
-        payable
-        override
-        whenNotPaused
-    {
-        TokenListing memory listing = _tokenListings[id];
-        require(listing.price > 0, "Purchase: no price set");
-        require(amount > 0, "Purchase: invalid amount");
-        require(
-            msg.value == amount * listing.price,
-            "Purchase: not enough value sent"
-        );
-        require(
-            listing.supply + amount <= listing.supplyLimit,
-            "Purchase: not enough stock"
-        );
-        _mint(_msgSender(), id, amount, "");
+    function purchase(
+        address to,
+        uint256 id,
+        uint256 amount,
+        bytes memory data
+    ) public payable override whenNotPaused {
+        _mint(to, id, amount, data);
     }
 
     // TODO:
-    // You can avoid the address limit guard technically by passing multiples
-    // of the same id with small amounts that in sum exceed the limit.
-    // Although this is not technically possible for any user facing external functions,
-    // as there is no batch purchase that accepts multiple ids
-    function _beforeTokenTransfer(
-        address operator,
-        address from,
+    function purchaseBatch(
         address to,
         uint256[] memory ids,
         uint256[] memory amounts,
         bytes memory data
+    ) public payable override whenNotPaused {
+        _mintBatch(to, ids, amounts, data);
+    }
+
+    // TODO:
+    // You can avoid the address limit guard by passing multiples
+    // of the same id with small amounts that in sum exceed the limit.
+    // This edge case is caught in the supply limit because we increment it as we check.
+    //
+    // Need owner ownly mint privilage that doesnt break supply and other metrics
+    //
+    // Checks already done:
+    // - ids len = amounts len
+    // - to address is not zero
+    function _beforeTokenTransfer(
+        address,
+        address from,
+        address to,
+        uint256[] memory ids,
+        uint256[] memory amounts,
+        bytes memory
     ) internal override(ERC1155) whenNotPaused {
-        if (to != address(0)) {
-            for (uint256 i = 0; i < ids.length; ++i) {
+        uint256 totalPrice = 0;
+
+        for (uint256 i = 0; i < ids.length; i++) {
+            uint256 id = ids[i];
+            uint256 amount = amounts[i];
+
+            TokenListing storage listing = _tokenListings[id];
+
+            // purchase specific validation
+            if (from == address(0)) {
+                require(listing.enabled, "Listing not enabled");
+
                 require(
-                    balanceOf(to, ids[i]) + amounts[i] <=
-                        _tokenListings[ids[i]].addressLimit,
-                    "Transfer: invalid new balance"
+                    listing.supply + amount <= listing.supplyLimit,
+                    "Exceeds supply limit"
                 );
+                listing.supply += amount;
+
+                totalPrice += amount * listing.price;
             }
+
+            require(
+                balanceOf(to, id) + amount <= listing.balanceLimit,
+                "Exceeds balance limit"
+            );
         }
 
-        super._beforeTokenTransfer(operator, from, to, ids, amounts, data);
-
-        if (from == address(0)) {
-            for (uint256 i = 0; i < ids.length; ++i) {
-                _tokenListings[ids[i]].supply += amounts[i];
-            }
-        }
-
-        if (to == address(0)) {
-            for (uint256 i = 0; i < ids.length; ++i) {
-                _tokenListings[ids[i]].supply -= amounts[i];
-            }
+        // skip payment check for owner address
+        if (_msgSender() != owner()) {
+            require(msg.value == totalPrice, "Invalid value sent");
         }
     }
 }
