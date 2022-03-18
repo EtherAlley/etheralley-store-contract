@@ -4,8 +4,9 @@
   "description": "The smart contract store for the EtherAlley platform",
   "scripts": {
     "clean": "hardhat clean",
-    "commit": "npm run clean & npm run lint & npm run compile & npm run test",
+    "commit": "npm run clean & npm run lint & npm run compile & npm run coverage",
     "compile": "hardhat compile",
+    "coverage": "hardhat coverage",
     "lint": "prettier '{test,scripts,contracts}/*.{json,sol,md}' && eslint '{test,scripts}/*.{js,ts}' && solhint 'contracts/**/*.sol'",
     "test": "hardhat test"
   },

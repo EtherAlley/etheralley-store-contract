@@ -8,7 +8,8 @@ import "@openzeppelin/contracts/security/Pausable.sol";
 
 interface IEtherAlleyStore is IERC1155 {
     struct TokenListing {
-        bool enabled;
+        bool purchasable;
+        bool transferable;
         uint256 price;
         uint256 supplyLimit;
         uint256 balanceLimit;
@@ -25,7 +26,8 @@ interface IEtherAlleyStore is IERC1155 {
 
     function setListing(
         uint256 id,
-        bool enabled,
+        bool purchasable,
+        bool transferable,
         uint256 price,
         uint256 supplyLimit,
         uint256 balanceLimit
@@ -54,7 +56,8 @@ interface IEtherAlleyStore is IERC1155 {
 
     event ListingChange(
         uint256 id,
-        bool enabled,
+        bool purchasable,
+        bool transferable,
         uint256 price,
         uint256 supplyLimit,
         uint256 balanceLimit,
@@ -63,7 +66,6 @@ interface IEtherAlleyStore is IERC1155 {
 }
 
 // TODO:
-// - support erc20 transfer?
 contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
     mapping(uint256 => TokenListing) private _tokenListings;
 
@@ -95,21 +97,24 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
     // TODO:
     function setListing(
         uint256 id,
-        bool enabled,
+        bool purchasable,
+        bool transferable,
         uint256 price,
         uint256 supplyLimit,
         uint256 balanceLimit
     ) public override onlyOwner {
         TokenListing storage listing = _tokenListings[id];
 
-        listing.enabled = enabled;
+        listing.purchasable = purchasable;
+        listing.transferable = transferable;
         listing.price = price;
         listing.supplyLimit = supplyLimit;
         listing.balanceLimit = balanceLimit;
 
         emit ListingChange(
             id,
-            enabled,
+            purchasable,
+            transferable,
             price,
             supplyLimit,
             balanceLimit,
@@ -165,8 +170,9 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
 
     // TODO:
     // Checks already done in the prior call stack:
-    // - ids length equals amounts length
+    // - ids and amounts have the same, non-zero length.
     // - to address is not zero address (burns not supported)
+    // - from and to are never both zero.
     function _beforeTokenTransfer(
         address operator,
         address from,
@@ -190,9 +196,9 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
 
             TokenListing storage listing = _tokenListings[id];
 
-            // Purchase specific validation
+            // Purchase specific logic
             if (from == address(0)) {
-                require(listing.enabled, "Listing not enabled");
+                require(listing.purchasable, "Listing not purchasable");
 
                 require(
                     listing.supply + amount <= listing.supplyLimit,
@@ -204,6 +210,11 @@ contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
 
                 // Accumulate total price
                 totalPrice += amount * listing.price;
+            }
+
+            // Transfer specific logic
+            if (from != address(0)) {
+                require(listing.transferable, "Listing not transferable");
             }
 
             require(
