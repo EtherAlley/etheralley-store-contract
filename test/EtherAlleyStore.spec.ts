@@ -26,33 +26,285 @@ describe("EtherAlleyStore", () => {
       expect(await store.owner()).to.equal(owner.address);
     });
 
-    it("Owner can transfer ownership", async () => {});
+    it("Ownly owner can transfer ownership", async () => {
+      await expect(
+        store.connect(user1).transferOwnership(user1.address)
+      ).to.be.revertedWith("Ownable: caller is not the owner");
 
-    it("Owner can revoke ownership", async () => {});
+      expect(await store.owner()).to.equal(owner.address);
+    });
 
-    it("Owner skips price check", async () => {});
+    it("Ownly owner can renounce ownership", async () => {
+      await expect(store.connect(user1).renounceOwnership()).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
 
-    it("Owner can set listings", async () => {});
+      expect(await store.owner()).to.equal(owner.address);
+    });
+
+    it("Owner can transfer ownership", async () => {
+      await store.connect(owner).transferOwnership(user1.address);
+
+      expect(await store.owner()).to.equal(user1.address);
+    });
+
+    it("Owner can revoke ownership", async () => {
+      await store.connect(owner).renounceOwnership();
+
+      expect(await store.owner()).to.equal(
+        "0x0000000000000000000000000000000000000000"
+      );
+    });
+
+    it("Owner skips price check", async () => {
+      await store
+        .connect(owner)
+        .setListing(tokenId1, true, true, 1000, 1000, 1000);
+
+      await store
+        .connect(owner)
+        .setListing(tokenId2, true, true, 1000, 1000, 1000);
+
+      await store
+        .connect(owner)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [1000, 1000], [], {
+          value: 0,
+        });
+
+      const [tokenBalance1, tokenBalance2] = await store.balanceOfBatch(
+        [user1.address, user1.address],
+        [tokenId1, tokenId2]
+      );
+
+      expect(tokenBalance1.toNumber()).to.equal(1000);
+      expect(tokenBalance2.toNumber()).to.equal(1000);
+
+      const [[, , , , , token1Supply], [, , , , , token2Supply]] =
+        await store.getListingBatch([tokenId1, tokenId2]);
+
+      expect(token1Supply).to.equal(1000);
+      expect(token2Supply).to.equal(1000);
+    });
+
+    it("Ownly owner can set listings", async () => {
+      await expect(
+        store.connect(user1).setListing(tokenId1, true, true, 1, 1, 1)
+      ).to.be.revertedWith("Ownable: caller is not the owner");
+    });
   });
 
   describe("Transfer Balance", () => {
-    it("Non owner cannot transfer balance", async function () {});
+    it("Ownly owner transfer balance", async function () {
+      expect(
+        (await ethers.provider.getBalance(store.address)).toNumber()
+      ).to.be.equal(0);
 
-    it("Owner can transfer balance", async () => {});
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 999);
+
+      await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 5, [], { value: 50 });
+
+      await expect(
+        store.connect(user2).transferBalance(user2.address, 50)
+      ).to.be.revertedWith("Ownable: caller is not the owner");
+
+      expect(
+        (await ethers.provider.getBalance(store.address)).toNumber()
+      ).to.be.equal(50);
+    });
+
+    it("Owner can transfer balance", async () => {
+      expect(
+        (await ethers.provider.getBalance(store.address)).toNumber()
+      ).to.be.equal(0);
+
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 999);
+
+      await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 5, [], { value: 50 });
+
+      await store
+        .connect(user2)
+        .purchase(user2.address, tokenId1, 5, [], { value: 50 });
+
+      expect(
+        (await ethers.provider.getBalance(store.address)).toNumber()
+      ).to.be.equal(100);
+
+      const ownerBalance = await owner.getBalance();
+      const receiverBalance = await user3.getBalance();
+
+      const tx = await store.connect(owner).transferBalance(user3.address, 50);
+      const receipt = await tx.wait();
+
+      // owner pays the transaction fee
+      const gas = receipt.cumulativeGasUsed;
+      const gasPrice = receipt.effectiveGasPrice;
+      expect(await owner.getBalance()).to.be.equal(
+        ownerBalance.sub(gas.mul(gasPrice))
+      );
+
+      // user3 gets the transfer amount
+      expect(await user3.getBalance()).to.be.equal(receiverBalance.add(50));
+
+      // contract loses the transfer amount
+      expect(
+        (await ethers.provider.getBalance(store.address)).toNumber()
+      ).to.be.equal(50);
+    });
   });
 
   describe("Pause Functionality", () => {
-    it("Cannot pause as non owner", async () => {});
+    it("Cannot pause as non owner", async () => {
+      expect(await store.paused()).to.be.equal(false);
 
-    it("Cannot unpause as non owner", async () => {});
+      await expect(store.connect(user1).pause()).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
 
-    it("Purchase is blocked when paused and can proceed when unpaused", async () => {});
+      expect(await store.paused()).to.be.equal(false);
+    });
 
-    it("Purchase Batch is blocked when paused and can proceed when unpaused", async () => {});
+    it("Cannot unpause as non owner", async () => {
+      expect(await store.paused()).to.be.equal(false);
 
-    it("Transfer is blocked when paused and can proceed when unpaused", async () => {});
+      await store.connect(owner).pause();
 
-    it("Transfer Batch is blocked when paused and can proceed when unpaused", async () => {});
+      expect(await store.paused()).to.be.equal(true);
+
+      await expect(store.connect(user1).unpause()).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
+
+      expect(await store.paused()).to.be.equal(true);
+    });
+
+    it("Purchase is blocked when paused and can proceed when unpaused", async () => {
+      await store.connect(owner).pause();
+      await store.connect(owner).setListing(tokenId1, true, true, 5, 999, 999);
+
+      expect(await store.paused()).to.be.equal(true);
+
+      await expect(
+        store
+          .connect(owner)
+          .purchase(user1.address, tokenId1, 1, [], { value: 5 })
+      ).to.be.revertedWith("Pausable: paused");
+
+      expect(await store.balanceOf(user1.address, tokenId1)).to.be.equal(0);
+
+      await store.connect(owner).unpause();
+
+      await store
+        .connect(owner)
+        .purchase(user1.address, tokenId1, 1, [], { value: 5 });
+
+      expect(await store.balanceOf(user1.address, tokenId1)).to.be.equal(1);
+    });
+
+    it("Purchase Batch is blocked when paused and can proceed when unpaused", async () => {
+      await store.connect(owner).pause();
+      await store.connect(owner).setListing(tokenId1, true, true, 5, 999, 999);
+      await store.connect(owner).setListing(tokenId2, true, true, 5, 999, 999);
+
+      expect(await store.paused()).to.be.equal(true);
+
+      await expect(
+        store
+          .connect(owner)
+          .purchaseBatch(user1.address, [tokenId2, tokenId2], [1, 1], [], {
+            value: 10,
+          })
+      ).to.be.revertedWith("Pausable: paused");
+
+      expect(await store.balanceOf(user1.address, tokenId1)).to.be.equal(0);
+      expect(await store.balanceOf(user1.address, tokenId2)).to.be.equal(0);
+
+      await store.connect(owner).unpause();
+
+      await store
+        .connect(owner)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [1, 1], [], {
+          value: 10,
+        });
+
+      expect(await store.balanceOf(user1.address, tokenId1)).to.be.equal(1);
+      expect(await store.balanceOf(user1.address, tokenId2)).to.be.equal(1);
+    });
+
+    it("Transfer is blocked when paused and can proceed when unpaused", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 5, 999, 999);
+      await store
+        .connect(owner)
+        .purchase(user1.address, tokenId1, 1, [], { value: 5 });
+      await store.connect(owner).pause();
+
+      expect(await store.paused()).to.be.equal(true);
+      expect(await store.balanceOf(user1.address, tokenId1)).to.be.equal(1);
+
+      await expect(
+        store
+          .connect(user1)
+          .safeTransferFrom(user1.address, user2.address, tokenId1, 1, [])
+      ).to.be.revertedWith("Pausable: paused");
+
+      await store.connect(owner).unpause();
+
+      await store
+        .connect(user1)
+        .safeTransferFrom(user1.address, user2.address, tokenId1, 1, []);
+
+      expect(await store.balanceOf(user1.address, tokenId1)).to.be.equal(0);
+      expect(await store.balanceOf(user2.address, tokenId1)).to.be.equal(1);
+    });
+
+    it("Transfer Batch is blocked when paused and can proceed when unpaused", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 5, 999, 999);
+      await store.connect(owner).setListing(tokenId2, true, true, 5, 999, 999);
+      await store
+        .connect(owner)
+        .purchase(user1.address, tokenId1, 1, [], { value: 5 });
+      await store
+        .connect(owner)
+        .purchase(user1.address, tokenId2, 1, [], { value: 5 });
+      await store.connect(owner).pause();
+
+      expect(await store.paused()).to.be.equal(true);
+      expect(await store.balanceOf(user1.address, tokenId1)).to.be.equal(1);
+      expect(await store.balanceOf(user1.address, tokenId2)).to.be.equal(1);
+
+      await expect(
+        store
+          .connect(user1)
+          .safeBatchTransferFrom(
+            user1.address,
+            user2.address,
+            [tokenId1, tokenId2],
+            [1, 1],
+            []
+          )
+      ).to.be.revertedWith("Pausable: paused");
+
+      await store.connect(owner).unpause();
+
+      await store
+        .connect(user1)
+        .safeBatchTransferFrom(
+          user1.address,
+          user2.address,
+          [tokenId1, tokenId2],
+          [1, 1],
+          []
+        );
+
+      expect(await store.balanceOf(user1.address, tokenId1)).to.be.equal(0);
+      expect(await store.balanceOf(user2.address, tokenId1)).to.be.equal(1);
+
+      expect(await store.balanceOf(user1.address, tokenId2)).to.be.equal(0);
+      expect(await store.balanceOf(user2.address, tokenId2)).to.be.equal(1);
+    });
   });
 
   describe("URI Functionality", () => {
@@ -65,9 +317,7 @@ describe("EtherAlleyStore", () => {
 
       const newURI = "https://api.etheralley.io/v2/store/{id}";
 
-      const tx = await store.setURI(newURI);
-
-      await tx.wait();
+      await store.setURI(newURI);
 
       expect(await store.uri(0)).to.equal(newURI);
     });
@@ -117,12 +367,9 @@ describe("EtherAlleyStore", () => {
         .connect(owner)
         .setListing(tokenId1, true, true, price, supplyLimit, balanceLimit);
 
-      const tx = await store
-        .connect(user1)
-        .purchase(user1.address, tokenId1, amount, [], {
-          value: price * amount,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user1.address, tokenId1, amount, [], {
+        value: price * amount,
+      });
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -187,7 +434,59 @@ describe("EtherAlleyStore", () => {
       ]);
     });
 
-    it("Can get multiple listings in batch", async () => {});
+    it("Can get multiple listings in batch", async () => {
+      await store.connect(owner).setListing(tokenId1, true, false, 3, 4, 5);
+
+      await store.connect(owner).setListing(tokenId2, true, true, 6, 7, 8);
+
+      await store.connect(user1).purchase(user1.address, tokenId1, 2, [], {
+        value: 6,
+      });
+
+      await store.connect(user1).purchase(user1.address, tokenId2, 3, [], {
+        value: 18,
+      });
+
+      const [
+        [
+          token1Purchasable,
+          token1Transferable,
+          token1Price,
+          token1SupplyLimit,
+          token1BalanceLimit,
+          token1Supply,
+        ],
+        [
+          token2Purchasable,
+          token2Transferable,
+          token2Price,
+          token2SupplyLimit,
+          token2BalanceLimit,
+          token2Supply,
+        ],
+      ] = await store.getListingBatch([tokenId1, tokenId2]);
+      expect([
+        [
+          token1Purchasable,
+          token1Transferable,
+          token1Price.toNumber(),
+          token1SupplyLimit.toNumber(),
+          token1BalanceLimit.toNumber(),
+          token1Supply.toNumber(),
+        ],
+        [
+          token2Purchasable,
+          token2Transferable,
+          token2Price.toNumber(),
+          token2SupplyLimit.toNumber(),
+          token2BalanceLimit.toNumber(),
+          token2Supply.toNumber(),
+        ],
+      ]).to.deep.equal([
+        [true, false, 3, 4, 5, 2],
+        [true, true, 6, 7, 8, 3],
+      ]);
+    });
   });
 
   describe("Purchase Functionality", () => {
@@ -261,10 +560,9 @@ describe("EtherAlleyStore", () => {
           .connect(owner)
           .setListing(tokenId1, true, true, price, supplyLimit, balanceLimit);
 
-        const tx = await store
+        await store
           .connect(user1)
           .purchase(user1.address, tokenId1, amount, [], { value });
-        await tx.wait();
 
         expect(
           await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -330,12 +628,9 @@ describe("EtherAlleyStore", () => {
         .setListing(tokenId1, true, true, price, supplyLimit, balanceLimit);
 
       // purchase all available stock
-      let tx = await store
-        .connect(user1)
-        .purchase(user1.address, tokenId1, amount, [], {
-          value: price * amount,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user1.address, tokenId1, amount, [], {
+        value: price * amount,
+      });
 
       // check supply/balances
       expect(
@@ -378,12 +673,11 @@ describe("EtherAlleyStore", () => {
         );
 
       // purchase all new stock
-      tx = await store
+      await store
         .connect(user1)
         .purchase(user1.address, tokenId1, increase, [], {
           value: price * increase,
         });
-      await tx.wait();
 
       // check supply/balances
       expect(
@@ -414,11 +708,84 @@ describe("EtherAlleyStore", () => {
       ]);
     });
 
-    it("Purchases can continue when balance limit increases", async () => {});
+    it("Purchases can continue when balance limit increases", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 5, 999, 5);
 
-    it("Purchases can continue when item is marked purchasable", async () => {});
+      store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 5, [], { value: 25 });
 
-    it("Item is still purchasable when not transferable", async () => {});
+      await expect(
+        store
+          .connect(user1)
+          .purchase(user1.address, tokenId1, 1, [], { value: 5 })
+      ).to.be.revertedWith("Exceeds balance limit");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+
+      await store.connect(owner).setListing(tokenId1, true, true, 5, 999, 6);
+
+      await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 1, [], { value: 5 });
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(6);
+    });
+
+    it("Purchases can continue when item is marked purchasable", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 5, 999, 5);
+
+      store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 5, [], { value: 25 });
+
+      await store.connect(owner).setListing(tokenId1, false, true, 5, 999, 999);
+
+      await expect(
+        store
+          .connect(user1)
+          .purchase(user1.address, tokenId1, 1, [], { value: 5 })
+      ).to.be.revertedWith("Listing not purchasable");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+
+      await store.connect(owner).setListing(tokenId1, true, true, 5, 999, 999);
+
+      await store
+        .connect(user1)
+        .purchase(user1.address, tokenId1, 1, [], { value: 5 });
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(6);
+    });
+
+    it("Item is still purchasable when not transferable", async () => {
+      await store.connect(owner).setListing(tokenId1, true, false, 5, 999, 5);
+
+      store
+        .connect(user1)
+        .purchase(user2.address, tokenId1, 5, [], { value: 25 });
+
+      await expect(
+        store
+          .connect(user2)
+          .safeTransferFrom(user2.address, user3.address, tokenId1, 1, [])
+      ).to.be.revertedWith("Listing not transferable");
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+    });
   });
 
   describe("Purchase Batch Functionality", () => {
@@ -568,7 +935,24 @@ describe("EtherAlleyStore", () => {
       expect(token2Supply).to.equal(0);
     });
 
-    it("Any item in batch can be non transferable", async () => {});
+    it("Any item in batch can be non transferable", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 1, 1, 1);
+
+      await store.connect(owner).setListing(tokenId2, true, false, 1, 1, 1);
+
+      await store
+        .connect(user1)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [1, 1], [], {
+          value: 2,
+        });
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(1);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(1);
+    });
 
     it("Balance and supply are updated when all constraints are met and called multiple times", async () => {
       const token1Price = 12;
@@ -583,7 +967,7 @@ describe("EtherAlleyStore", () => {
         .connect(owner)
         .setListing(tokenId2, true, true, token2Price, 9999, 9999);
 
-      let tx = await store
+      await store
         .connect(user1)
         .purchaseBatch(
           user1.address,
@@ -594,7 +978,6 @@ describe("EtherAlleyStore", () => {
             value: token1Price * token1Amount + token2Price * token2Amount,
           }
         );
-      await tx.wait();
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -607,7 +990,7 @@ describe("EtherAlleyStore", () => {
       let [, , , , , token2Supply] = await store.getListing(tokenId2);
       expect(token2Supply).to.equal(token2Amount);
 
-      tx = await store
+      await store
         .connect(user1)
         .purchaseBatch(
           user1.address,
@@ -618,7 +1001,6 @@ describe("EtherAlleyStore", () => {
             value: token1Price * token1Amount + token2Price * token2Amount,
           }
         );
-      await tx.wait();
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -632,7 +1014,19 @@ describe("EtherAlleyStore", () => {
       expect(token2Supply).to.equal(token2Amount * 2);
     });
 
-    it("Purchasing on behalf of someone does not avoid the balance check", async () => {});
+    it("Purchasing on behalf of someone does not avoid the balance check", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 1, 2, 1);
+
+      await expect(
+        store.connect(user1).purchase(user2.address, tokenId1, 2, [], {
+          value: 2,
+        })
+      ).to.be.revertedWith("Exceeds balance limit");
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(0);
+    });
   });
 
   describe("Transfer Functionality", () => {
@@ -644,29 +1038,23 @@ describe("EtherAlleyStore", () => {
         .connect(owner)
         .setListing(tokenId1, true, true, price, 999, balanceLimit);
 
-      let tx = await store
-        .connect(user1)
-        .purchase(user1.address, tokenId1, amount, [], {
-          value: amount * price,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user1.address, tokenId1, amount, [], {
+        value: amount * price,
+      });
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
       ).to.equal(amount);
 
-      tx = await store
-        .connect(user1)
-        .purchase(user2.address, tokenId1, amount, [], {
-          value: amount * price,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user2.address, tokenId1, amount, [], {
+        value: amount * price,
+      });
 
       expect(
         await store.balanceOf(await user2.getAddress(), tokenId1)
       ).to.equal(amount);
 
-      tx = await store
+      await store
         .connect(user1)
         .safeTransferFrom(
           user1.address,
@@ -676,7 +1064,6 @@ describe("EtherAlleyStore", () => {
           [],
           {}
         );
-      await tx.wait();
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -720,29 +1107,23 @@ describe("EtherAlleyStore", () => {
         .connect(owner)
         .setListing(tokenId1, true, true, price, 999, balanceLimit);
 
-      let tx = await store
-        .connect(user1)
-        .purchase(user1.address, tokenId1, amount, [], {
-          value: amount * price,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user1.address, tokenId1, amount, [], {
+        value: amount * price,
+      });
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
       ).to.equal(amount);
 
-      tx = await store
-        .connect(user1)
-        .purchase(user2.address, tokenId1, amount, [], {
-          value: amount * price,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user2.address, tokenId1, amount, [], {
+        value: amount * price,
+      });
 
       expect(
         await store.balanceOf(await user2.getAddress(), tokenId1)
       ).to.equal(amount);
 
-      tx = await store
+      await store
         .connect(user1)
         .safeTransferFrom(
           user1.address,
@@ -752,7 +1133,6 @@ describe("EtherAlleyStore", () => {
           [],
           {}
         );
-      await tx.wait();
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -781,7 +1161,7 @@ describe("EtherAlleyStore", () => {
         .connect(owner)
         .setListing(tokenId1, true, true, price, 999, balanceLimit * 2);
 
-      tx = await store
+      await store
         .connect(user2)
         .safeTransferFrom(
           user2.address,
@@ -791,7 +1171,6 @@ describe("EtherAlleyStore", () => {
           [],
           {}
         );
-      await tx.wait();
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -807,12 +1186,9 @@ describe("EtherAlleyStore", () => {
     it("Can not transfer more balance than owned", async () => {
       await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 999);
 
-      const tx = await store
-        .connect(user1)
-        .purchase(user1.address, tokenId1, 5, [], {
-          value: 50,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user1.address, tokenId1, 5, [], {
+        value: 50,
+      });
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -837,12 +1213,9 @@ describe("EtherAlleyStore", () => {
     it("Can transfer a non purchasable item", async () => {
       await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 999);
 
-      let tx = await store
-        .connect(user1)
-        .purchase(user1.address, tokenId1, 1, [], {
-          value: 10,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user1.address, tokenId1, 1, [], {
+        value: 10,
+      });
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -852,10 +1225,9 @@ describe("EtherAlleyStore", () => {
         .connect(owner)
         .setListing(tokenId1, false, true, 10, 999, 999);
 
-      tx = await store
+      await store
         .connect(user1)
         .safeTransferFrom(user1.address, user3.address, tokenId1, 1, [], {});
-      await tx.wait();
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -868,21 +1240,17 @@ describe("EtherAlleyStore", () => {
     it("Can transfer an item at max supply", async () => {
       await store.connect(owner).setListing(tokenId1, true, true, 10, 10, 999);
 
-      let tx = await store
-        .connect(user1)
-        .purchase(user1.address, tokenId1, 10, [], {
-          value: 100,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user1.address, tokenId1, 10, [], {
+        value: 100,
+      });
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
       ).to.equal(10);
 
-      tx = await store
+      await store
         .connect(user1)
         .safeTransferFrom(user1.address, user3.address, tokenId1, 10, [], {});
-      await tx.wait();
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -894,28 +1262,98 @@ describe("EtherAlleyStore", () => {
       expect(token1Supply).to.equal(10);
     });
 
-    it("Can continue with transfers when balance limit increases", async () => {});
+    it("Can continue with transfers when balance limit increases", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 1, 2, 2);
 
-    it("Cannot transfer when not approved", async () => {});
+      await store.connect(user1).purchase(user2.address, tokenId1, 2, [], {
+        value: 2,
+      });
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(2);
+
+      await store.connect(owner).setListing(tokenId1, true, true, 1, 2, 1);
+
+      await expect(
+        store
+          .connect(user2)
+          .safeTransferFrom(user2.address, user3.address, tokenId1, 2, [])
+      ).to.be.revertedWith("Exceeds balance limit");
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(2);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+
+      await store.connect(owner).setListing(tokenId1, true, true, 1, 2, 2);
+
+      await store
+        .connect(user2)
+        .safeTransferFrom(user2.address, user3.address, tokenId1, 2, []);
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(2);
+    });
+
+    it("Can continue with transfers when item is marked transferable", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 1, 2, 2);
+
+      await store.connect(user1).purchase(user2.address, tokenId1, 2, [], {
+        value: 2,
+      });
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(2);
+
+      await store.connect(owner).setListing(tokenId1, true, false, 1, 2, 2);
+
+      await expect(
+        store
+          .connect(user2)
+          .safeTransferFrom(user2.address, user3.address, tokenId1, 2, [])
+      ).to.be.revertedWith("Listing not transferable");
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(2);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+
+      await store.connect(owner).setListing(tokenId1, true, true, 1, 2, 2);
+
+      await store
+        .connect(user2)
+        .safeTransferFrom(user2.address, user3.address, tokenId1, 2, []);
+
+      expect(
+        await store.balanceOf(await user2.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(2);
+    });
   });
 
   describe("Transfer Batch Functionality", () => {
     it("Can not avoid balance limit check by batch transfering small amounts of the same id", async () => {
       await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 15);
 
-      let tx = await store
-        .connect(user1)
-        .purchase(user1.address, tokenId1, 10, [], {
-          value: 100,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user1.address, tokenId1, 10, [], {
+        value: 100,
+      });
 
-      tx = await store
-        .connect(user1)
-        .purchase(user2.address, tokenId1, 10, [], {
-          value: 100,
-        });
-      await tx.wait();
+      await store.connect(user1).purchase(user2.address, tokenId1, 10, [], {
+        value: 100,
+      });
 
       expect(
         await store.balanceOf(await user1.getAddress(), tokenId1)
@@ -924,7 +1362,7 @@ describe("EtherAlleyStore", () => {
         await store.balanceOf(await user2.getAddress(), tokenId1)
       ).to.equal(10);
 
-      tx = await store
+      await store
         .connect(user1)
         .safeBatchTransferFrom(
           user1.address,
@@ -934,7 +1372,6 @@ describe("EtherAlleyStore", () => {
           [],
           {}
         );
-      await tx.wait();
       await expect(
         store
           .connect(user2)
@@ -959,14 +1396,397 @@ describe("EtherAlleyStore", () => {
       ).to.equal(10);
     });
 
-    it("Fails when one item is over balance limit", async () => {});
+    it("Fails when one item is over balance limit", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(owner).setListing(tokenId2, true, true, 10, 999, 6);
+      await store
+        .connect(user1)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [5, 6], [], {
+          value: 110,
+        });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(6);
 
-    it("Fails when one item is non transferable", async () => {});
+      await store.connect(owner).setListing(tokenId2, true, true, 10, 999, 5);
 
-    it("Works when all constraints are met", async () => {});
+      await expect(
+        store
+          .connect(user2)
+          .safeBatchTransferFrom(
+            user2.address,
+            user3.address,
+            [tokenId1, tokenId2],
+            [5, 6],
+            [],
+            {}
+          )
+      ).to.be.revertedWith("Exceeds balance limit");
 
-    it("Cannot batch transfer when not approved", async () => {});
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(6);
+    });
+
+    it("Fails when one item is non transferable", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(owner).setListing(tokenId2, true, false, 10, 999, 5);
+      await store
+        .connect(user1)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [5, 5], [], {
+          value: 100,
+        });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(5);
+
+      await expect(
+        store
+          .connect(user1)
+          .safeBatchTransferFrom(
+            user1.address,
+            user3.address,
+            [tokenId1, tokenId2],
+            [5, 5],
+            [],
+            {}
+          )
+      ).to.be.revertedWith("Listing not transferable");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(5);
+
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId2)
+      ).to.equal(0);
+    });
+
+    it("Works when all constraints are met", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(owner).setListing(tokenId2, true, true, 10, 999, 5);
+      await store
+        .connect(user1)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [5, 5], [], {
+          value: 100,
+        });
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(5);
+
+      await store
+        .connect(user1)
+        .safeBatchTransferFrom(
+          user1.address,
+          user3.address,
+          [tokenId1, tokenId2],
+          [5, 5],
+          [],
+          {}
+        );
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(0);
+
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId2)
+      ).to.equal(5);
+    });
   });
 
-  describe("End to end tests", () => {});
+  describe("Approval For Functionality", () => {
+    it("Cannot transfer when not approved", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(user1).purchase(user1.address, tokenId1, 5, [], {
+        value: 50,
+      });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+
+      await expect(
+        store
+          .connect(user3)
+          .safeTransferFrom(user1.address, user3.address, tokenId1, 5, [], {})
+      ).to.be.revertedWith("ERC1155: caller is not owner nor approved");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+    });
+
+    it("Cannot batch transfer when not approved", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(owner).setListing(tokenId2, true, false, 10, 999, 5);
+      await store
+        .connect(user1)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [5, 5], [], {
+          value: 100,
+        });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(5);
+
+      await expect(
+        store
+          .connect(user3)
+          .safeBatchTransferFrom(
+            user1.address,
+            user3.address,
+            [tokenId1, tokenId2],
+            [5, 5],
+            [],
+            {}
+          )
+      ).to.be.revertedWith(
+        "ERC1155: transfer caller is not owner nor approved"
+      );
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(5);
+
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId2)
+      ).to.equal(0);
+    });
+
+    it("Cannot bypass balance limit when transfering on behalf of address", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(user1).purchase(user1.address, tokenId1, 5, [], {
+        value: 50,
+      });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+
+      await expect(
+        store
+          .connect(user3)
+          .safeTransferFrom(user1.address, user3.address, tokenId1, 999, [], {})
+      ).to.be.revertedWith("ERC1155: caller is not owner nor approved");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+    });
+
+    it("Cannot bypass non transferable flag when transfering on behalf of address", async () => {
+      await store.connect(owner).setListing(tokenId1, true, false, 10, 999, 5);
+      await store.connect(user1).purchase(user1.address, tokenId1, 5, [], {
+        value: 50,
+      });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+
+      await expect(
+        store
+          .connect(user3)
+          .safeTransferFrom(user1.address, user3.address, tokenId1, 5, [], {})
+      ).to.be.revertedWith("ERC1155: caller is not owner nor approved");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+    });
+
+    it("Can transfer when approved", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(user1).purchase(user1.address, tokenId1, 5, [], {
+        value: 50,
+      });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+
+      await store.connect(user1).setApprovalForAll(user3.address, true);
+
+      await store
+        .connect(user3)
+        .safeTransferFrom(user1.address, user3.address, tokenId1, 5, [], {});
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(5);
+    });
+
+    it("Cannot transfer after losing approval", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(user1).purchase(user1.address, tokenId1, 5, [], {
+        value: 50,
+      });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+
+      await store.connect(user1).setApprovalForAll(user3.address, true);
+
+      expect(
+        await store.isApprovedForAll(user1.address, user3.address)
+      ).to.be.equal(true);
+
+      await store.connect(user1).setApprovalForAll(user3.address, false);
+
+      expect(
+        await store.isApprovedForAll(user1.address, user3.address)
+      ).to.be.equal(false);
+
+      await expect(
+        store
+          .connect(user3)
+          .safeTransferFrom(user1.address, user3.address, tokenId1, 5, [], {})
+      ).to.be.revertedWith("ERC1155: caller is not owner nor approved");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+    });
+
+    it("Can batch transfer when approved", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(owner).setListing(tokenId2, true, true, 10, 999, 5);
+      await store
+        .connect(user1)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [5, 5], [], {
+          value: 100,
+        });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(5);
+
+      await store.connect(user1).setApprovalForAll(user3.address, true);
+
+      expect(
+        await store.isApprovedForAll(user1.address, user3.address)
+      ).to.be.equal(true);
+
+      await store.connect(user1).setApprovalForAll(user3.address, false);
+
+      expect(
+        await store.isApprovedForAll(user1.address, user3.address)
+      ).to.be.equal(false);
+
+      await expect(
+        store
+          .connect(user3)
+          .safeBatchTransferFrom(
+            user1.address,
+            user3.address,
+            [tokenId1, tokenId2],
+            [5, 5],
+            [],
+            {}
+          )
+      ).to.be.revertedWith("transfer caller is not owner nor approved");
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId2)
+      ).to.equal(0);
+    });
+
+    it("Cannot batch transfer after losing approval", async () => {
+      await store.connect(owner).setListing(tokenId1, true, true, 10, 999, 5);
+      await store.connect(owner).setListing(tokenId2, true, true, 10, 999, 5);
+      await store
+        .connect(user1)
+        .purchaseBatch(user1.address, [tokenId1, tokenId2], [5, 5], [], {
+          value: 100,
+        });
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(5);
+
+      await store.connect(user1).setApprovalForAll(user3.address, true);
+
+      await store
+        .connect(user3)
+        .safeBatchTransferFrom(
+          user1.address,
+          user3.address,
+          [tokenId1, tokenId2],
+          [5, 5],
+          [],
+          {}
+        );
+
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId1)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user1.getAddress(), tokenId2)
+      ).to.equal(0);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId1)
+      ).to.equal(5);
+      expect(
+        await store.balanceOf(await user3.getAddress(), tokenId2)
+      ).to.equal(5);
+    });
+  });
 });
