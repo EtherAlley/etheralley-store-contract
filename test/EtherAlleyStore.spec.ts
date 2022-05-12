@@ -4,7 +4,8 @@ import { ethers } from "hardhat";
 import { EtherAlleyStore } from "../typechain";
 
 describe("EtherAlleyStore", () => {
-  const uri: string = "https://api.etheralley.io/store/{id}";
+  const uri: string = "https://core.etheralley.io/store/{id}";
+  const contractURI: string = "https://core.etheralley.io/store";
   const tokenId1 = 123;
   const tokenId2 = 456;
   let store: EtherAlleyStore;
@@ -17,7 +18,7 @@ describe("EtherAlleyStore", () => {
     [owner, user1, user2, user3] = await ethers.getSigners();
 
     const Store = await ethers.getContractFactory("EtherAlleyStore");
-    store = await Store.connect(owner).deploy(uri);
+    store = await Store.connect(owner).deploy(uri, contractURI);
     await store.deployed();
   });
 
@@ -330,6 +331,32 @@ describe("EtherAlleyStore", () => {
       ).to.be.revertedWith("Ownable: caller is not the owner");
 
       expect(await store.uri(0)).to.equal(uri);
+    });
+  });
+
+  describe("contractURI Functionality", () => {
+    it("should set contractURI during deployment", async () => {
+      expect(await store.contractURI()).to.equal(contractURI);
+    });
+
+    it("should update uri after setting", async () => {
+      expect(await store.contractURI()).to.equal(contractURI);
+
+      const newURI = "https://api.etheralley.io/v2/newstore";
+
+      await store.setContractURI(newURI);
+
+      expect(await store.contractURI()).to.equal(newURI);
+    });
+
+    it("only owner can set contractURI", async () => {
+      expect(await store.contractURI()).to.equal(contractURI);
+
+      await expect(
+        store.connect(user1).setURI("https://api.etheralley.io/invalid")
+      ).to.be.revertedWith("Ownable: caller is not the owner");
+
+      expect(await store.contractURI()).to.equal(contractURI);
     });
   });
 

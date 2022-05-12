@@ -24,6 +24,15 @@ interface IEtherAlleyStore is IERC1155, IERC1155MetadataURI {
     /// @param newuri is used to set uri
     function setURI(string memory newuri) external;
 
+    /// @notice function that provides the contract uri
+    /// @return uri the contract uri that contains contract level metadata
+    function contractURI() external view returns (string memory uri);
+
+    /// @notice function that sets the contract uri
+    /// @dev only the owner address can call this function
+    /// @param newuri the uri to set contractURI with
+    function setContractURI(string memory newuri) external;
+
     /// @notice function that disables any functions marked as whenNotPaused
     /// @dev only the owner address can call this function
     function pause() external;
@@ -123,9 +132,21 @@ interface IEtherAlleyStore is IERC1155, IERC1155MetadataURI {
 contract EtherAlleyStore is IEtherAlleyStore, ERC1155, Ownable, Pausable {
     mapping(uint256 => TokenListing) private _tokenListings;
 
-    constructor(string memory uri)
-        ERC1155(uri) // solhint-disable-next-line
-    {}
+    string private _contractURI;
+
+    constructor(string memory uri, string memory contURI) ERC1155(uri) {
+        _contractURI = contURI;
+    }
+
+    /// @inheritdoc IEtherAlleyStore
+    function contractURI() public view override returns (string memory) {
+        return _contractURI;
+    }
+
+    /// @inheritdoc IEtherAlleyStore
+    function setContractURI(string memory newuri) public override onlyOwner {
+        _contractURI = newuri;
+    }
 
     /// @inheritdoc IEtherAlleyStore
     function setURI(string memory newuri) public override onlyOwner {
