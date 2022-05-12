@@ -11,7 +11,7 @@ dotenv.config();
 
 const config: HardhatUserConfig = {
   solidity: {
-    version: "0.8.4",
+    version: "0.8.9",
     settings: {
       optimizer: {
         enabled: true,
@@ -22,6 +22,19 @@ const config: HardhatUserConfig = {
   gasReporter: {
     enabled: true,
     currency: "USD",
+  },
+  networks: {
+    matic: {
+      url: process.env.MATIC_URL || "",
+      chainId: 137,
+    },
+    mumbai: {
+      url: process.env.MUMBAI_URL || "",
+      chainId: 80001,
+    },
+  },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_KEY,
   },
 };
 

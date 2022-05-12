@@ -7,10 +7,11 @@
     "commit": "npm run clean & npm run lint & npm run compile & npm run coverage",
     "compile": "hardhat compile",
     "coverage": "hardhat coverage",
-    "lint": "prettier '{test,scripts,contracts}/*.{json,sol,md}' && eslint '{test,scripts}/*.{js,ts}' && solhint 'contracts/**/*.sol'",
+    "lint": "prettier \"{test,scripts,contracts}/*.{json,sol,md}\" && eslint \"{test,scripts}/*.{js,ts}\" && solhint \"contracts/**/*.sol\"",
     "test": "hardhat test"
   },
   "devDependencies": {
+    "@anders-t/ethers-ledger": "^1.0.4",
     "@nomiclabs/hardhat-ethers": "^2.0.5",
     "@nomiclabs/hardhat-etherscan": "^3.0.3",
     "@nomiclabs/hardhat-waffle": "^2.0.3",
@@ -44,5 +45,8 @@
   },
   "dependencies": {
     "@openzeppelin/contracts": "^4.5.0"
+  },
+  "engines": {
+    "node": ">=14.8.3"
   }
 }
